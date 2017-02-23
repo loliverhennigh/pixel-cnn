@@ -19,14 +19,15 @@ import pixel_cnn_pp.nn as nn
 import pixel_cnn_pp.plotting as plotting
 from pixel_cnn_pp.model import model_spec
 import data.cifar10_data as cifar10_data
-import data.imagenet_data as imagenet_data
+import data.imagenet_data_32x32 as imagenet_data_32x32
+import data.imagenet_data_64x64 as imagenet_data_64x64
 
 # -----------------------------------------------------------------------------
 parser = argparse.ArgumentParser()
 # data I/O
-parser.add_argument('-i', '--data_dir', type=str, default='/tmp/pxpp/data', help='Location for the dataset')
-parser.add_argument('-o', '--save_dir', type=str, default='/tmp/pxpp/save', help='Location for parameter checkpoints and samples')
-parser.add_argument('-d', '--data_set', type=str, default='cifar', help='Can be either cifar|imagenet')
+parser.add_argument('-i', '--data_dir', type=str, default='./pxpp/data', help='Location for the dataset')
+parser.add_argument('-o', '--save_dir', type=str, default='./pxpp/save', help='Location for parameter checkpoints and samples')
+parser.add_argument('-d', '--data_set', type=str, default='cifar', help='Can be cifar|imagenet_32x32|imagenet_64x64')
 parser.add_argument('-t', '--save_interval', type=int, default=20, help='Every how many epochs to write checkpoint/samples?')
 parser.add_argument('-r', '--load_params', dest='load_params', action='store_true', help='Restore training from previous model checkpoint?')
 # model
@@ -58,8 +59,8 @@ tf.set_random_seed(args.seed)
 # initialize data loaders for train/test splits
 if args.data_set == 'imagenet' and args.class_conditional:
     raise("We currently don't have labels for the small imagenet data set")
-DataLoader = {'cifar':cifar10_data.DataLoader, 'imagenet':imagenet_data.DataLoader}[args.data_set]
-train_data = DataLoader(args.data_dir, 'train', args.batch_size * args.nr_gpu, rng=rng, shuffle=True, return_labels=args.class_conditional)
+DataLoader = {'cifar':cifar10_data.DataLoader, 'imagenet_32x32':imagenet_data_32x32.DataLoader, 'imagenet_64x64':imagenet_data_64x64.DataLoader}[args.data_set]
+train_data = DataLoader(args.data_dir, 'train', args.batch_size * args.nr_gpu, rng=rng, shuffle=True)
 test_data = DataLoader(args.data_dir, 'test', args.batch_size * args.nr_gpu, shuffle=False, return_labels=args.class_conditional)
 obs_shape = train_data.get_observation_size() # e.g. a tuple (32,32,3)
 assert len(obs_shape) == 3, 'assumed right now'
@@ -83,7 +84,7 @@ else:
     hs = h_sample
 
 # create the model
-model_opt = { 'nr_resnet': args.nr_resnet, 'nr_filters': args.nr_filters, 'nr_logistic_mix': args.nr_logistic_mix, 'resnet_nonlinearity': args.resnet_nonlinearity }
+model_opt = { 'nr_resnet': args.nr_resnet, 'nr_filters': args.nr_filters, 'nr_logistic_mix': args.nr_logistic_mix * (obs_shape[2]/3), 'resnet_nonlinearity': args.resnet_nonlinearity }
 model = tf.make_template('model', model_spec)
 
 # run once for data dependent initialization of parameters
