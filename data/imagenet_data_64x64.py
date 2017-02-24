@@ -10,18 +10,10 @@ import os
 import sys
 import tarfile
 from six.moves import urllib
+from pixel_cnn_pp.utils import *
 
 import numpy as np
 from scipy.misc import imread
-
-def reshape_grid(tensor):
-  tensor = tensor.reshape((64,64,3)) 
-  tensor_x_split = np.split(tensor, 2, 0)
-  tensor_y_split_1 = np.split(tensor_x_split[0], 2, 1)
-  tensor_y_split_2 = np.split(tensor_x_split[1], 2, 1)
-  new_tensor = np.concatenate(tensor_y_split_1 + tensor_y_split_2, 2)
-  new_tensor = new_tensor.reshape(((1,32,32,12))
-  return new_tensor
 
 def fetch(url, filepath):
     filename = url.split('/')[-1]
@@ -63,11 +55,14 @@ def maybe_preprocess(data_dir):
 
     trainx = []
     train_dir = os.path.join(data_dir, 'train_64x64')
+    store_ind = 0 # dont save all for right now (just half or so)
     for f in os.listdir(train_dir):
-        if f.endswith('.png'):
-            print('reading', f)
-            filepath = os.path.join(train_dir, f)
-            trainx.append(reshape_grid(imread(filepath)))
+        store_ind += 1
+        if store_ind % 8 == 0:
+          if f.endswith('.png'):
+              print('reading', f)
+              filepath = os.path.join(train_dir, f)
+              trainx.append(image_to_grid(imread(filepath)))
     trainx = np.concatenate(trainx, axis=0)
 
     testx = []
@@ -76,7 +71,7 @@ def maybe_preprocess(data_dir):
         if f.endswith('.png'):
             print('reading', f)
             filepath = os.path.join(test_dir, f)
-            testx.append(reshape_grid(imread(filepath)))
+            testx.append(image_to_grid(imread(filepath)))
     testx = np.concatenate(testx, axis=0)
 
     np.savez(npz_file, trainx=trainx, testx=testx)

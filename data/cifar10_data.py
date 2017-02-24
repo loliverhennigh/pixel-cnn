@@ -8,6 +8,7 @@ import sys
 import tarfile
 from six.moves import urllib
 import numpy as np
+from pixel_cnn_pp.utils import *
 
 def maybe_download_and_extract(data_dir, url='http://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz'):
     if not os.path.exists(os.path.join(data_dir, 'cifar-10-batches-py')):
@@ -55,7 +56,7 @@ def load(data_dir, subset='train'):
 class DataLoader(object):
     """ an object that generates batches of CIFAR-10 data for training """
 
-    def __init__(self, data_dir, subset, batch_size, rng=None, shuffle=False, return_labels=False):
+    def __init__(self, data_dir, subset, batch_size, rng=None, shuffle=False, return_labels=False, split_type=None, nr_split=1):
         """ 
         - data_dir is location where to store files
         - subset is train|test 
@@ -76,6 +77,8 @@ class DataLoader(object):
         # load CIFAR-10 training data to RAM
         self.data, self.labels = load(os.path.join(data_dir,'cifar-10-python'), subset=subset)
         self.data = np.transpose(self.data, (0,2,3,1)) # (N,3,32,32) -> (N,32,32,3)
+        if split_type == 'cake':
+            self.data = image_to_grid(self.data, (32,32), nr_split)
         
         self.p = 0 # pointer to where we are in iteration
         self.rng = np.random.RandomState(1) if rng is None else rng

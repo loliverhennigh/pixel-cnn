@@ -21,6 +21,8 @@ from pixel_cnn_pp.model import model_spec
 import data.cifar10_data as cifar10_data
 import data.imagenet_data_32x32 as imagenet_data_32x32
 import data.imagenet_data_64x64 as imagenet_data_64x64
+from pixel_cnn_pp.utils import *
+from tqdm import *
 
 # -----------------------------------------------------------------------------
 parser = argparse.ArgumentParser()
@@ -28,7 +30,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('-i', '--data_dir', type=str, default='./pxpp/data', help='Location for the dataset')
 parser.add_argument('-o', '--save_dir', type=str, default='./pxpp/save', help='Location for parameter checkpoints and samples')
 parser.add_argument('-d', '--data_set', type=str, default='cifar', help='Can be cifar|imagenet_32x32|imagenet_64x64')
-parser.add_argument('-t', '--save_interval', type=int, default=20, help='Every how many epochs to write checkpoint/samples?')
+parser.add_argument('-t', '--save_interval', type=int, default=1, help='Every how many epochs to write checkpoint/samples?')
 parser.add_argument('-r', '--load_params', dest='load_params', action='store_true', help='Restore training from previous model checkpoint?')
 # model
 parser.add_argument('-q', '--nr_resnet', type=int, default=5, help='Number of residual blocks per stage of the model')
@@ -36,6 +38,8 @@ parser.add_argument('-n', '--nr_filters', type=int, default=160, help='Number of
 parser.add_argument('-m', '--nr_logistic_mix', type=int, default=10, help='Number of logistic components in the mixture. Higher = more flexible model')
 parser.add_argument('-z', '--resnet_nonlinearity', type=str, default='concat_elu', help='Which nonlinearity to use in the ResNet layers. One of "concat_elu", "elu", "relu" ')
 parser.add_argument('-c', '--class_conditional', dest='class_conditional', action='store_true', help='Condition generative model on labels?')
+parser.add_argument('-f', '--nr_split', type=int, default=2, help='number of splits for high resolution training')
+parser.add_argument('-k', '--split_type', type=str, default='cake', help='type of splitting operation. Can be Cake|')
 # optimization
 parser.add_argument('-l', '--learning_rate', type=float, default=0.001, help='Base learning rate')
 parser.add_argument('-e', '--lr_decay', type=float, default=0.999995, help='Learning rate decay, applied every step of the optimization')
@@ -60,8 +64,8 @@ tf.set_random_seed(args.seed)
 if args.data_set == 'imagenet' and args.class_conditional:
     raise("We currently don't have labels for the small imagenet data set")
 DataLoader = {'cifar':cifar10_data.DataLoader, 'imagenet_32x32':imagenet_data_32x32.DataLoader, 'imagenet_64x64':imagenet_data_64x64.DataLoader}[args.data_set]
-train_data = DataLoader(args.data_dir, 'train', args.batch_size * args.nr_gpu, rng=rng, shuffle=True)
-test_data = DataLoader(args.data_dir, 'test', args.batch_size * args.nr_gpu, shuffle=False, return_labels=args.class_conditional)
+train_data = DataLoader(args.data_dir, 'train', args.batch_size * args.nr_gpu, split_type=args.split_type, nr_split=args.nr_split, rng=rng, shuffle=True)
+test_data = DataLoader(args.data_dir, 'test', args.batch_size * args.nr_gpu, split_type=args.split_type, nr_split=args.nr_split, shuffle=False)
 obs_shape = train_data.get_observation_size() # e.g. a tuple (32,32,3)
 assert len(obs_shape) == 3, 'assumed right now'
 
@@ -84,7 +88,7 @@ else:
     hs = h_sample
 
 # create the model
-model_opt = { 'nr_resnet': args.nr_resnet, 'nr_filters': args.nr_filters, 'nr_logistic_mix': args.nr_logistic_mix * (obs_shape[2]/3), 'resnet_nonlinearity': args.resnet_nonlinearity }
+model_opt = { 'nr_resnet': args.nr_resnet, 'nr_filters': args.nr_filters, 'nr_logistic_mix': args.nr_logistic_mix * args.nr_split * args.nr_split, 'resnet_nonlinearity': args.resnet_nonlinearity }
 model = tf.make_template('model', model_spec)
 
 # run once for data dependent initialization of parameters
@@ -133,11 +137,16 @@ for i in range(args.nr_gpu):
         new_x_gen.append(nn.sample_from_discretized_mix_logistic(gen_par, args.nr_logistic_mix))
 def sample_from_model(sess):
     x_gen = [np.zeros((args.batch_size,) + obs_shape, dtype=np.float32) for i in range(args.nr_gpu)]
-    for yi in range(obs_shape[0]):
+    print("Sampling from model")
+    for yi in tqdm(range(obs_shape[0])):
         for xi in range(obs_shape[1]):
             new_x_gen_np = sess.run(new_x_gen, {xs[i]: x_gen[i] for i in range(args.nr_gpu)})
             for i in range(args.nr_gpu):
                 x_gen[i][:,yi,xi,:] = new_x_gen_np[i][:,yi,xi,:]
+
+    for i in range(args.nr_gpu):
+        if args.split_type == 'cake': # only cake type for now
+            x_gen[i] = grid_to_image(x_gen[i], (obs_shape[0], obs_shape[1]), args.nr_split) 
     return np.concatenate(x_gen, axis=0)
 
 # init & save
@@ -185,32 +194,8 @@ with tf.Session() as sess:
                 print('restoring parameters from', ckpt_file)
                 saver.restore(sess, ckpt_file)
 
-        # train for one epoch
-        train_losses = []
-        for d in train_data:
-            feed_dict = make_feed_dict(d)
-            # forward/backward/update model on each gpu
-            lr *= args.lr_decay
-            feed_dict.update({ tf_lr: lr })
-            l,_ = sess.run([bits_per_dim, optimizer], feed_dict)
-            train_losses.append(l)
-        train_loss_gen = np.mean(train_losses)
-
-        # compute likelihood over test data
-        test_losses = []
-        for d in test_data:
-            feed_dict = make_feed_dict(d)
-            l = sess.run(bits_per_dim_test, feed_dict)
-            test_losses.append(l)
-        test_loss_gen = np.mean(test_losses)
-        test_bpd.append(test_loss_gen)
-
-        # log progress to console
-        print("Iteration %d, time = %ds, train bits_per_dim = %.4f, test bits_per_dim = %.4f" % (epoch, time.time()-begin, train_loss_gen, test_loss_gen))
-        sys.stdout.flush()
-
+        print("generating sample image")
         if epoch % args.save_interval == 0:
-
             # generate samples from the model
             sample_x = sample_from_model(sess)
             img_tile = plotting.img_tile(sample_x[:int(np.floor(np.sqrt(args.batch_size*args.nr_gpu))**2)], aspect_ratio=1.0, border_color=1.0, stretch=True)
@@ -221,3 +206,30 @@ with tf.Session() as sess:
             # save params
             saver.save(sess, args.save_dir + '/params_' + args.data_set + '.ckpt')
             np.savez(args.save_dir + '/test_bpd_' + args.data_set + '.npz', test_bpd=np.array(test_bpd))
+
+        # train for one epoch
+        train_losses = []
+        print("training epoch " + str(epoch))
+        for d in tqdm(train_data):
+            feed_dict = make_feed_dict(d)
+            # forward/backward/update model on each gpu
+            lr *= args.lr_decay
+            feed_dict.update({ tf_lr: lr })
+            l,_ = sess.run([bits_per_dim, optimizer], feed_dict)
+            train_losses.append(l)
+        train_loss_gen = np.mean(train_losses)
+
+        # compute likelihood over test data
+        test_losses = []
+        print("testing epoch " + str(epoch))
+        for d in tqdm(test_data):
+            feed_dict = make_feed_dict(d)
+            l = sess.run(bits_per_dim_test, feed_dict)
+            test_losses.append(l)
+        test_loss_gen = np.mean(test_losses)
+        test_bpd.append(test_loss_gen)
+
+        # log progress to console
+        print("Iteration %d, time = %ds, train bits_per_dim = %.4f, test bits_per_dim = %.4f" % (epoch, time.time()-begin, train_loss_gen, test_loss_gen))
+        sys.stdout.flush()
+
