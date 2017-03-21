@@ -4,6 +4,7 @@ import numpy as np
 def image_to_grid(tensor, shape, nr_split):
 
   # possibly add batch to image
+  print(shape)
   if len(tensor.shape) < 4:
     tensor = tensor.reshape([1] + shape + [3]) # add zero
 

@@ -87,7 +87,7 @@ def load(data_dir, subset='train'):
 class DataLoader(object):
     """ an object that generates batches of CIFAR-10 data for training """
 
-    def __init__(self, data_dir, subset, batch_size, rng=None, shuffle=False, return_labels=False):
+    def __init__(self, data_dir, subset, batch_size, rng=None, shuffle=False, return_labels=False, split_type=None, nr_split=1):
         """ 
         - data_dir is location where the files are stored
         - subset is train|test 
@@ -99,6 +99,8 @@ class DataLoader(object):
         self.shuffle = shuffle
 
         self.data = load(os.path.join(data_dir,'small_imagenet'), subset=subset)
+        if split_type == 'cake':
+            self.data = image_to_grid(self.data, (32,32), nr_split)
         
         self.p = 0 # pointer to where we are in iteration
         self.rng = np.random.RandomState(1) if rng is None else rng

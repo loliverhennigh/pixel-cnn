@@ -58,11 +58,11 @@ def maybe_preprocess(data_dir):
     store_ind = 0 # dont save all for right now (just half or so)
     for f in os.listdir(train_dir):
         store_ind += 1
-        if store_ind % 8 == 0:
+        if store_ind % 8 == 0: # only store every 8 frames! (this is just so the data wont explode)
           if f.endswith('.png'):
               print('reading', f)
               filepath = os.path.join(train_dir, f)
-              trainx.append(image_to_grid(imread(filepath)))
+              trainx.append(imread(filepath).reshape((1,64,64,3)))
     trainx = np.concatenate(trainx, axis=0)
 
     testx = []
@@ -71,7 +71,7 @@ def maybe_preprocess(data_dir):
         if f.endswith('.png'):
             print('reading', f)
             filepath = os.path.join(test_dir, f)
-            testx.append(image_to_grid(imread(filepath)))
+            testx.append(imread(filepath).reshape((1,64,64,3)))
     testx = np.concatenate(testx, axis=0)
 
     np.savez(npz_file, trainx=trainx, testx=testx)
@@ -91,7 +91,7 @@ def load(data_dir, subset='train'):
 class DataLoader(object):
     """ an object that generates batches of CIFAR-10 data for training """
 
-    def __init__(self, data_dir, subset, batch_size, rng=None, shuffle=False):
+    def __init__(self, data_dir, subset, batch_size, rng=None, shuffle=False, split_type=None, nr_split=1):
         """ 
         - data_dir is location where the files are stored
         - subset is train|test 
@@ -103,6 +103,9 @@ class DataLoader(object):
         self.shuffle = shuffle
         
         self.data = load(os.path.join(data_dir,'small_imagenet'), subset=subset)
+        print(self.data.shape)
+        if split_type == 'cake':
+            self.data = image_to_grid(self.data, (64,64), nr_split)
         
         self.p = 0 # pointer to where we are in iteration
         self.rng = np.random.RandomState(1) if rng is None else rng
