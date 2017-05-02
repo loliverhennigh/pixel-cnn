@@ -20,6 +20,8 @@ Running the code is the same as the Pixel-Cnn repo however now you can run on im
 python train.py --nr_gpu=1 --data_set=imagenet_64x64 --nr_split=4
 ```
 
+One thing to keep in mind is this does not load the entire imagenet data set but only an 8th of it. This is to reduce the RAM usage when training.
+
 # Cifar 4 slices
 
 Here are a few sampled images during training of 32x32 cifar with 2x2 slices.
@@ -36,6 +38,15 @@ Step 161
 # Imagenet 64x64
 
 Here are a few sampled images during training of 64x64 imagenet with 4x4 slices.
+
+Step 0
+![](pxpp/save/imagenet_64x64_sample0.png)
+Step 30
+![](pxpp/save/imagenet_64x64_sample30.png)
+Step 60
+![](pxpp/save/imagenet_64x64_sample60.png)
+Step 90
+![](pxpp/save/imagenet_64x64_sample90.png)
 
 # Results
 
